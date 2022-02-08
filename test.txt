@@ -1,0 +1,182 @@
+// SPDX-License-Identifier: GPL-3.0
+
+pragma solidity >=0.7.0 <0.9.0;
+
+contract WSR {
+    
+
+    uint commentId;
+    constructor() {
+        commentId = 0;
+    }
+
+    struct UserInfo {
+        string login;
+        address addr;
+        string fio;
+        string role;
+    }
+
+    struct UserPersonal {
+        string password;
+        string authCode;
+    }
+
+    struct Shop {
+        uint id;
+        address owner;
+        address[] sellers;
+    }
+
+    struct Comment{
+        uint id;
+        uint shopId;
+        uint likes;
+        uint dislikes;
+        uint mark;
+        string text;
+    }
+
+    struct Reply {
+        uint likes;
+        uint dislike;
+        string text;
+    }
+
+    UserInfo[] admins;
+    address nullAddress;
+    
+    Shop[] shops;
+
+    mapping( string => address ) public loginToAddress;
+    mapping( address => bool ) private access;
+
+    mapping( address => uint256 ) public addressToShopId;
+
+    mapping( address => UserInfo ) public usersInfo;
+    mapping( address => UserPersonal ) private usersPersonal;
+
+    mapping (address => Shop ) addressToShop;
+    mapping ( uint => Comment[] ) comments;
+    mapping ( uint => Reply[] ) replies;
+
+    function _stringToBytes( string memory data ) private pure returns( bytes32 ) {
+        return keccak256( abi.encode( data ) );
+    }
+
+    function registerUser( string calldata login, address addr, string calldata fio, string calldata password, string calldata authCode ) public {
+        require( loginToAddress[ login ] == nullAddress, "User already exists");
+        loginToAddress[ login ] = addr;
+        usersInfo[ addr ] = UserInfo( login, addr, fio, "BUYER");
+        usersPersonal[ addr ] = UserPersonal( password, authCode );
+    }
+
+    function firstLogin( string calldata login, string calldata password ) public view returns( address ) {
+        address addr = loginToAddress[ login ];
+        require( addr != nullAddress, " Login is incorrect " );
+        string memory pass = usersPersonal[ addr ].password;
+        require( _stringToBytes( pass ) == _stringToBytes( password ), "Password is incorrect" ); 
+        return addr;
+    }
+
+    function tryLogin( string calldata login, string calldata authCode) public view returns( UserInfo memory ) {
+        address addr = loginToAddress[ login ];
+        string memory auth = usersPersonal[ addr ].authCode;
+        require( _stringToBytes( auth ) == _stringToBytes( authCode ), "Password is incorrect" );
+        return usersInfo[addr];
+    }
+
+    modifier isAdmin( ) {
+        require( access[ msg.sender ], "You must be admin to do that." );
+        _;
+    }
+
+    function createAdmin( string calldata login ) public isAdmin( ) {
+        address addr = loginToAddress[login];
+        require(  addr != nullAddress, "User doesnt exist." );
+        UserInfo memory user = usersInfo[ addr ];
+        access[ addr ] = true;
+        admins.push( user );
+    }
+
+    function getAdminList( ) public view returns( UserInfo[] memory ) {
+        return admins;
+    }
+
+    function updateBuyer( string calldata login, address shopOwnerAddress ) isAdmin public {
+        address addr = loginToAddress[login];
+        require(  addr != nullAddress, "User doesnt exist." );
+        require(  _stringToBytes( usersInfo[ addr ].role ) == _stringToBytes( "BUYER" ), "User must be a buyer!" );
+        usersInfo[ addr ].role = "SELLER";
+        
+        addressToShop[shopOwnerAddress].sellers.push( addr );
+        
+        for( uint i = 0; i < shops.length; i++ ){
+            if( shops[i].owner == shopOwnerAddress ) {
+                 shops[i].sellers.push( addr );
+            }
+        }
+
+
+    }
+
+    function decreaseSeller( string calldata login, address shopOwnerAddress ) isAdmin public {
+        address addr = loginToAddress[login];
+        require(  addr != nullAddress, "User doesnt exist." );
+        require(  _stringToBytes( usersInfo[ addr ].role ) == _stringToBytes( "SELLER" ), "User must be a seller!" );
+        usersInfo[ addr ].role = "BUYER";
+
+        delete addressToShop[shopOwnerAddress];
+        for( uint i=0; i < shops.length; i++ ) {
+           if( shops[i].owner == shopOwnerAddress ) {
+               for( uint j = i; j < shops.length - 1; j++ ) {
+                   shops[j] = shops[j+1];
+               }
+               shops.pop();
+               break;
+           }
+        }
+
+
+    }
+
+    function changeRole( string calldata role ) isAdmin public {
+        usersInfo[ msg.sender ].role = role;
+    }
+
+    function createShop( string calldata login ) isAdmin public {
+        address addr = loginToAddress[login];
+        require(  addr != nullAddress, "User doesnt exist." );
+        require(  _stringToBytes( usersInfo[ addr ].role ) != _stringToBytes( "SHOP" ), "User must be not a shop!" );
+        usersInfo[ addr ].role = "SHOP";
+
+        Shop memory shop;
+        shop.owner = addr;
+        shop.id = shops.length;
+
+        shops.push(shop);
+        addressToShop[addr] = shop;
+    }
+
+    function getCommentId() internal returns(uint) {
+        commentId++;
+        return commentId;
+    }
+
+    function createComment( address shopOwnerAddress, string memory text, uint mark ) public {
+        
+        Comment memory comment = Comment( 
+                getCommentId(), 
+                addressToShop[shopOwnerAddress].id,
+                0,
+                0,
+                mark,
+                text
+        );
+
+        comments[addressToShop[shopOwnerAddress].id].push( comment );
+    }
+
+
+
+}
